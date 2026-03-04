@@ -154,17 +154,22 @@ server.setRequestHandler(types_js_1.CallToolRequestSchema, function (request) { 
         }
     });
 }); });
-// 2. 웹 서버(Express) 및 SSE 연결 설정
+// 2. 웹 서버(Express) 및 SSE 연결 설정 (💡 PlayMCP 다중 세션 대응)
 var app = (0, express_1.default)();
-app.use((0, cors_1.default)()); // 외부(PlayMCP 등)에서 접근 가능하도록 허용
-var transport;
-// 클라이언트가 처음 연결을 맺는 엔드포인트
+app.use((0, cors_1.default)());
+// 연결된 PlayMCP 세션들을 관리하는 창고
+var transports = new Map();
 app.get("/sse", function (req, res) { return __awaiter(void 0, void 0, void 0, function () {
+    var transport;
     return __generator(this, function (_a) {
         switch (_a.label) {
             case 0:
-                console.log("새로운 SSE 연결이 시작되었습니다.");
                 transport = new sse_js_1.SSEServerTransport("/messages", res);
+                transports.set(transport.sessionId, transport);
+                // 연결이 끊어지면 창고에서 삭제합니다.
+                res.on("close", function () {
+                    transports.delete(transport.sessionId);
+                });
                 return [4 /*yield*/, server.connect(transport)];
             case 1:
                 _a.sent();
@@ -172,20 +177,21 @@ app.get("/sse", function (req, res) { return __awaiter(void 0, void 0, void 0, f
         }
     });
 }); });
-// 클라이언트(AI)가 도구 실행 요청(메시지)을 보내는 엔드포인트
 app.post("/messages", function (req, res) { return __awaiter(void 0, void 0, void 0, function () {
+    var sessionId, transport;
     return __generator(this, function (_a) {
         switch (_a.label) {
             case 0:
-                if (!transport) return [3 /*break*/, 2];
+                sessionId = req.query.sessionId;
+                transport = transports.get(sessionId);
+                if (!transport) {
+                    res.status(404).send("Session not found");
+                    return [2 /*return*/];
+                }
                 return [4 /*yield*/, transport.handlePostMessage(req, res)];
             case 1:
                 _a.sent();
-                return [3 /*break*/, 3];
-            case 2:
-                res.status(400).send("SSE transport not initialized");
-                _a.label = 3;
-            case 3: return [2 /*return*/];
+                return [2 /*return*/];
         }
     });
 }); });
@@ -193,5 +199,4 @@ app.post("/messages", function (req, res) { return __awaiter(void 0, void 0, voi
 var PORT = process.env.PORT || 3000;
 app.listen(PORT, function () {
     console.log("\uD83D\uDE80 F1 Tracker MCP \uC6F9 \uC11C\uBC84\uAC00 \uD3EC\uD2B8 ".concat(PORT, "\uC5D0\uC11C \uC2E4\uD589 \uC911\uC785\uB2C8\uB2E4."));
-    console.log("\uD83D\uDD17 \uC5F0\uACB0 \uC8FC\uC18C: http://localhost:".concat(PORT, "/sse"));
 });

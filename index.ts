@@ -100,31 +100,40 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   }
 });
 
-// 2. 웹 서버(Express) 및 SSE 연결 설정
+// 2. 웹 서버(Express) 및 SSE 연결 설정 (💡 PlayMCP 다중 세션 대응)
 const app = express();
-app.use(cors()); // 외부(PlayMCP 등)에서 접근 가능하도록 허용
+app.use(cors());
 
-let transport: SSEServerTransport;
+// 연결된 PlayMCP 세션들을 관리하는 창고
+const transports = new Map<string, SSEServerTransport>();
 
-// 클라이언트가 처음 연결을 맺는 엔드포인트
 app.get("/sse", async (req, res) => {
-  console.log("새로운 SSE 연결이 시작되었습니다.");
-  transport = new SSEServerTransport("/messages", res);
+  // 새 연결이 올 때마다 고유한 통로를 만들고 창고에 저장합니다.
+  const transport = new SSEServerTransport("/messages", res);
+  transports.set(transport.sessionId, transport);
+  
+  // 연결이 끊어지면 창고에서 삭제합니다.
+  res.on("close", () => {
+    transports.delete(transport.sessionId);
+  });
+
   await server.connect(transport);
 });
 
-// 클라이언트(AI)가 도구 실행 요청(메시지)을 보내는 엔드포인트
 app.post("/messages", async (req, res) => {
-  if (transport) {
-    await transport.handlePostMessage(req, res);
-  } else {
-    res.status(400).send("SSE transport not initialized");
+  // PlayMCP가 요청을 보낼 때 어떤 세션인지 확인하고 해당 통로로 연결해 줍니다.
+  const sessionId = req.query.sessionId as string;
+  const transport = transports.get(sessionId);
+  
+  if (!transport) {
+    res.status(404).send("Session not found");
+    return;
   }
+  await transport.handlePostMessage(req, res);
 });
 
 // 3. 서버 실행
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`🚀 F1 Tracker MCP 웹 서버가 포트 ${PORT}에서 실행 중입니다.`);
-  console.log(`🔗 연결 주소: http://localhost:${PORT}/sse`);
 });
