@@ -46,14 +46,14 @@ var express_1 = __importDefault(require("express"));
 var cors_1 = __importDefault(require("cors"));
 /**
  * 1. MCP 서버 설정
- * 가이드에 따라 최신 스펙 버전(2025-03-26 이상)을 준수하도록 구성되었습니다.
+ * 카카오 가이드의 최소 지원 버전(2025-03-26)을 이름에 반영했습니다.
  */
 var server = new index_js_1.Server({
     name: "f1-tracker-mcp",
-    version: "2025-03-26", // PlayMCP 가이드 권장 버전 형식 반영
+    version: "2025-03-26",
 }, { capabilities: { tools: {} } });
 /**
- * 도구 목록 정의 (규격 준수: 영문, 숫자, 언더바 조합)
+ * 도구 목록 정의
  */
 server.setRequestHandler(types_js_1.ListToolsRequestSchema, function () { return __awaiter(void 0, void 0, void 0, function () {
     return __generator(this, function (_a) {
@@ -66,7 +66,7 @@ server.setRequestHandler(types_js_1.ListToolsRequestSchema, function () { return
                     },
                     {
                         name: "get_participating_teams",
-                        description: "2026년 F1 시즌에 참가하는 팀(컨스트럭터) 목록과 수를 조회합니다.",
+                        description: "2026년 F1 시즌에 참가하는 팀 목록과 수를 조회합니다.",
                         inputSchema: { type: "object", properties: {}, required: [] },
                     },
                     {
@@ -77,7 +77,7 @@ server.setRequestHandler(types_js_1.ListToolsRequestSchema, function () { return
                             properties: {
                                 constructor_id: {
                                     type: "string",
-                                    description: "팀 영문 ID (예: red_bull, ferrari, mclaren, mercedes, audi, cadillac 등)"
+                                    description: "팀 영문 ID (예: red_bull, ferrari, mclaren, mercedes, audi 등)"
                                 }
                             },
                             required: ["constructor_id"],
@@ -85,7 +85,7 @@ server.setRequestHandler(types_js_1.ListToolsRequestSchema, function () { return
                     },
                     {
                         name: "get_driver_standings",
-                        description: "가장 최신의 F1 드라이버 챔피언십 포인트 순위를 조회합니다.",
+                        description: "현재 시즌 F1 드라이버 챔피언십 포인트 순위를 조회합니다.",
                         inputSchema: { type: "object", properties: {}, required: [] },
                     }
                 ],
@@ -93,10 +93,10 @@ server.setRequestHandler(types_js_1.ListToolsRequestSchema, function () { return
     });
 }); });
 /**
- * 실제 API 연동 로직
+ * 도구 실행 로직
  */
 server.setRequestHandler(types_js_1.CallToolRequestSchema, function (request) { return __awaiter(void 0, void 0, void 0, function () {
-    var _a, name, args, response, data, races, scheduleInfo, response, data, teams, teamInfo, constructorId, response, data, drivers, driverInfo, response, data, standingsList, standings, standingsInfo, error_1;
+    var _a, name, args, response, data, races, scheduleInfo, response, data, teams, teamInfo, constructorId, response, data, drivers, driverInfo, response, data, standingsList, standingsInfo, error_1;
     return __generator(this, function (_b) {
         switch (_b.label) {
             case 0:
@@ -136,10 +136,10 @@ server.setRequestHandler(types_js_1.CallToolRequestSchema, function (request) { 
                 data = _b.sent();
                 drivers = data.MRData.DriverTable.Drivers;
                 if (!drivers || drivers.length === 0) {
-                    return [2 /*return*/, { content: [{ type: "text", text: "해당 팀의 드라이버 정보를 찾을 수 없습니다. ID를 확인해 주세요." }] }];
+                    return [2 /*return*/, { content: [{ type: "text", text: "해당 팀 정보를 찾을 수 없습니다." }] }];
                 }
-                driverInfo = drivers.map(function (d) { return "- ".concat(d.givenName, " ").concat(d.familyName, " (\uAD6D\uC801: ").concat(d.nationality, ")"); }).join('\n');
-                return [2 /*return*/, { content: [{ type: "text", text: "\uC694\uCCAD\uD558\uC2E0 \uD300\uC758 \uB4DC\uB77C\uC774\uBC84 \uBA85\uB2E8\uC785\uB2C8\uB2E4:\n".concat(driverInfo) }] }];
+                driverInfo = drivers.map(function (d) { return "- ".concat(d.givenName, " ").concat(d.familyName, " (\uBC88\uD638: ").concat(d.permanentNumber, ")"); }).join('\n');
+                return [2 /*return*/, { content: [{ type: "text", text: "\uC18C\uC18D \uB4DC\uB77C\uC774\uBC84 \uBA85\uB2E8\uC785\uB2C8\uB2E4:\n".concat(driverInfo) }] }];
             case 10:
                 if (!(name === "get_driver_standings")) return [3 /*break*/, 13];
                 return [4 /*yield*/, fetch("https://api.jolpi.ca/ergast/f1/current/driverStandings.json")];
@@ -150,24 +150,27 @@ server.setRequestHandler(types_js_1.CallToolRequestSchema, function (request) { 
                 data = _b.sent();
                 standingsList = data.MRData.StandingsTable.StandingsLists[0];
                 if (!standingsList)
-                    return [2 /*return*/, { content: [{ type: "text", text: "순위 데이터가 아직 없습니다." }] }];
-                standings = standingsList.DriverStandings;
-                standingsInfo = standings.slice(0, 10).map(function (s) { var _a; return "".concat(s.position, "\uC704: ").concat(s.Driver.givenName, " ").concat(s.Driver.familyName, " (").concat((_a = s.Constructors[0]) === null || _a === void 0 ? void 0 : _a.name, ") - ").concat(s.points, "\uC810"); }).join('\n');
-                return [2 /*return*/, { content: [{ type: "text", text: "\uD604\uC7AC \uB4DC\uB77C\uC774\uBC84 \uC21C\uC704 (Top 10):\n".concat(standingsInfo) }] }];
-            case 13: throw new Error("알 수 없는 도구입니다.");
+                    return [2 /*return*/, { content: [{ type: "text", text: "순위 데이터가 없습니다." }] }];
+                standingsInfo = standingsList.DriverStandings.slice(0, 10).map(function (s) {
+                    return "".concat(s.position, "\uC704: ").concat(s.Driver.givenName, " ").concat(s.Driver.familyName, " - ").concat(s.points, "\uC810");
+                }).join('\n');
+                return [2 /*return*/, { content: [{ type: "text", text: "\uD604\uC7AC \uB4DC\uB77C\uC774\uBC84 \uC21C\uC704:\n".concat(standingsInfo) }] }];
+            case 13: throw new Error("알 수 없는 도구");
             case 14:
                 error_1 = _b.sent();
-                return [2 /*return*/, { content: [{ type: "text", text: "\uC5D0\uB7EC \uBC1C\uC0DD: ".concat(error_1) }], isError: true }];
+                return [2 /*return*/, { content: [{ type: "text", text: "\uC5D0\uB7EC: ".concat(error_1) }], isError: true }];
             case 15: return [2 /*return*/];
         }
     });
 }); });
 /**
- * 2. 웹 서버 및 다중 세션 관리 (PlayMCP 가이드 준수)
+ * 2. 웹 서버 및 다중 세션 관리
  */
 var app = (0, express_1.default)();
-app.use((0, cors_1.default)());
-// 카카오 검증 시스템을 위한 Health Check 엔드포인트 추가
+// CORS 설정을 보강하여 PlayMCP의 접근을 허용합니다.
+app.use((0, cors_1.default)({ origin: "*", methods: ["GET", "POST"] }));
+app.use(express_1.default.json());
+// 카카오 검증용 Health Check
 app.get("/", function (req, res) {
     res.status(200).send("F1 Tracker MCP Server is Healthy and Ready!");
 });
@@ -177,13 +180,9 @@ app.get("/sse", function (req, res) { return __awaiter(void 0, void 0, void 0, f
     return __generator(this, function (_a) {
         switch (_a.label) {
             case 0:
-                console.log("새로운 SSE 연결 시도...");
                 transport = new sse_js_1.SSEServerTransport("/messages", res);
                 transports.set(transport.sessionId, transport);
-                res.on("close", function () {
-                    transports.delete(transport.sessionId);
-                    console.log("\uC5F0\uACB0 \uC885\uB8CC (\uC138\uC158: ".concat(transport.sessionId, ")"));
-                });
+                res.on("close", function () { return transports.delete(transport.sessionId); });
                 return [4 /*yield*/, server.connect(transport)];
             case 1:
                 _a.sent();
@@ -198,10 +197,8 @@ app.post("/messages", function (req, res) { return __awaiter(void 0, void 0, voi
             case 0:
                 sessionId = req.query.sessionId;
                 transport = transports.get(sessionId);
-                if (!transport) {
-                    res.status(404).send("Session not found");
-                    return [2 /*return*/];
-                }
+                if (!transport)
+                    return [2 /*return*/, res.status(404).send("Session not found")];
                 return [4 /*yield*/, transport.handlePostMessage(req, res)];
             case 1:
                 _a.sent();
@@ -210,15 +207,14 @@ app.post("/messages", function (req, res) { return __awaiter(void 0, void 0, voi
     });
 }); });
 /**
- * 3. 서버 실행 및 자동 취침 방지 로직
+ * 3. Render 포트 자동 인식 및 실행
  */
-var PORT = process.env.PORT || 3000;
-app.listen(PORT, function () {
-    console.log("\uD83D\uDE80 \uC11C\uBC84 \uC2E4\uD589 \uC911: \uD3EC\uD2B8 ".concat(PORT));
-    // Render 무료 플랜의 'Spin-down'을 막기 위해 14분마다 자기 자신을 호출합니다.
+var PORT = process.env.PORT || 10000; // Render의 기본 포트 10000 사용
+app.listen(PORT, "0.0.0.0", function () {
+    console.log("\uD83D\uDE80 PlayMCP \uC804\uC6A9 \uC11C\uBC84\uAC00 \uD3EC\uD2B8 ".concat(PORT, "\uC5D0\uC11C \uC2E4\uD589 \uC911\uC785\uB2C8\uB2E4."));
+    // 14분마다 자기 자신을 찔러서 잠들지 않게 합니다.
+    var selfUrl = process.env.RENDER_EXTERNAL_URL || "https://f1-tracker-mcp.onrender.com";
     setInterval(function () {
-        // 본인의 Render 실제 주소로 자동 변경되도록 설정 (포트 3000은 로컬용)
-        var url = process.env.RENDER_EXTERNAL_URL || "http://localhost:".concat(PORT);
-        fetch(url).then(function () { return console.log("Self-ping successful: Staying awake!"); }).catch(function () { });
+        fetch(selfUrl).catch(function () { });
     }, 14 * 60 * 1000);
 });
