@@ -4,34 +4,63 @@ import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprot
 import express from "express";
 import cors from "cors";
 
-// 💡 node-fetch 에러를 피하기 위해 전역 fetch를 안전하게 참조합니다.
+// 💡 최신 Node.js 환경에서 fetch를 안전하게 참조합니다.
 const nativeFetch = (global as any).fetch;
 
+/**
+ * 1. MCP 서버 설정
+ * 카카오 가이드의 최소 지원 버전(2025-03-26 이상)을 반영했습니다.
+ */
 const server = new Server(
-  { name: "f1-tracker-mcp", version: "2025-03-26" },
+  {
+    name: "f1-tracker-mcp",
+    version: "2025-03-26",
+  },
   { capabilities: { tools: {} } }
 );
 
-/** 도구 목록 및 실행 로직 (기존과 동일) **/
+/**
+ * 도구 목록 정의 (규격: 영문, 숫자, 언더바)
+ */
 server.setRequestHandler(ListToolsRequestSchema, async () => {
   return {
     tools: [
-      { name: "get_2026_schedule", description: "2026 F1 일정 조회", inputSchema: { type: "object", properties: {}, required: [] } },
-      { name: "get_participating_teams", description: "2026 F1 참가 팀 조회", inputSchema: { type: "object", properties: {}, required: [] } },
+      {
+        name: "get_2026_schedule",
+        description: "2026년 F1 시즌의 전체 그랑프리 경기 일정과 개막일을 조회합니다.",
+        inputSchema: { type: "object", properties: {}, required: [] },
+      },
+      {
+        name: "get_participating_teams",
+        description: "2026년 F1 시즌에 참가하는 팀 목록과 수를 조회합니다.",
+        inputSchema: { type: "object", properties: {}, required: [] },
+      },
       {
         name: "get_team_drivers",
-        description: "특정 F1 팀 드라이버 조회",
+        description: "특정 F1 팀의 2026 시즌 소속 드라이버 명단을 조회합니다.",
         inputSchema: {
           type: "object",
-          properties: { constructor_id: { type: "string" } },
+          properties: {
+            constructor_id: {
+              type: "string",
+              description: "팀 영문 ID (예: red_bull, ferrari, mclaren, audi 등)"
+            }
+          },
           required: ["constructor_id"],
         },
       },
-      { name: "get_driver_standings", description: "현재 드라이버 순위 조회", inputSchema: { type: "object", properties: {}, required: [] } }
+      {
+        name: "get_driver_standings",
+        description: "현재 시즌 F1 드라이버 챔피언십 포인트 순위를 조회합니다.",
+        inputSchema: { type: "object", properties: {}, required: [] },
+      }
     ],
   };
 });
 
+/**
+ * 도구 실행 로직 (표준 텍스트 응답 구조)
+ */
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: args } = request.params;
   try {
@@ -41,21 +70,36 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     else if (name === "get_team_drivers") url = `https://api.jolpi.ca/ergast/f1/2026/constructors/${(args as any).constructor_id}/drivers.json`;
     else if (name === "get_driver_standings") url = "https://api.jolpi.ca/ergast/f1/current/driverStandings.json";
 
-    const response = await nativeFetch(url); // 수정된 fetch 사용
+    const response = await nativeFetch(url);
     const data = await response.json();
     
-    // 간략화된 응답 (과장님은 기존의 상세 로직을 그대로 쓰셔도 무방합니다)
-    return { content: [{ type: "text", text: JSON.stringify(data, null, 2).slice(0, 1000) }] };
+    return {
+      content: [
+        {
+          type: "text",
+          text: `조회 결과 데이터입니다: ${JSON.stringify(data).slice(0, 2000)}`
+        }
+      ]
+    };
   } catch (error) {
-    return { content: [{ type: "text", text: `에러: ${error}` }], isError: true };
+    return {
+      content: [{ type: "text", text: `에러가 발생했습니다: ${error}` }],
+      isError: true
+    };
   }
 });
 
+/**
+ * 2. 웹 서버 및 다중 세션 관리 (PlayMCP 필수 사양)
+ */
 const app = express();
-app.use(cors());
+app.use(cors({ origin: "*", methods: ["GET", "POST"] }));
 app.use(express.json());
 
-app.get("/", (req, res) => { res.status(200).send("F1 Tracker MCP Healthy!"); });
+// 카카오 [정보 불러오기] 클릭 시 서버 상태 확인용 (Health Check)
+app.get("/", (req, res) => {
+  res.status(200).send("F1 Tracker MCP Server is Healthy and Ready!");
+});
 
 const transports = new Map<string, SSEServerTransport>();
 
@@ -73,13 +117,17 @@ app.post("/messages", async (req, res) => {
   await transport.handlePostMessage(req, res);
 });
 
-/** 💡 에러 해결 핵심: 포트 번호를 명시적으로 '숫자'로 변환합니다. **/
+/**
+ * 3. Render 포트 인식 및 자동 취침 방지
+ */
 const PORT = Number(process.env.PORT) || 10000; 
 
 app.listen(PORT, "0.0.0.0", () => {
-  console.log(`🚀 서버 실행 중: 포트 ${PORT}`);
+  console.log(`🚀 PlayMCP 전용 서버가 포트 ${PORT}에서 실행 중입니다.`);
   
-  // 자가 기상 로직
-  const selfUrl = process.env.RENDER_EXTERNAL_URL || `https://f1-tracker-mcp.onrender.com`;
-  setInterval(() => { nativeFetch(selfUrl).catch(() => {}); }, 14 * 60 * 1000);
+  // 14분마다 자기 자신을 호출하여 서버가 잠들지 않도록 유지합니다.
+  const selfUrl = `https://f1-tracker-mcp.onrender.com`;
+  setInterval(() => {
+    nativeFetch(selfUrl).catch(() => {});
+  }, 14 * 60 * 1000);
 });
