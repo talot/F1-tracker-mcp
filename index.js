@@ -35,12 +35,17 @@ var __generator = (this && this.__generator) || function (thisArg, body) {
         if (op[0] & 5) throw op[1]; return { value: op[0] ? op[1] : void 0, done: true };
     }
 };
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 var index_js_1 = require("@modelcontextprotocol/sdk/server/index.js");
-var stdio_js_1 = require("@modelcontextprotocol/sdk/server/stdio.js");
+var sse_js_1 = require("@modelcontextprotocol/sdk/server/sse.js");
 var types_js_1 = require("@modelcontextprotocol/sdk/types.js");
-var server = new index_js_1.Server({ name: "f1-tracker-mcp", version: "1.1.0" }, // 버전을 1.1.0으로 올렸습니다.
-{ capabilities: { tools: {} } });
+var express_1 = __importDefault(require("express"));
+var cors_1 = __importDefault(require("cors"));
+// 1. MCP 서버 설정
+var server = new index_js_1.Server({ name: "f1-tracker-mcp", version: "1.1.0" }, { capabilities: { tools: {} } });
 server.setRequestHandler(types_js_1.ListToolsRequestSchema, function () { return __awaiter(void 0, void 0, void 0, function () {
     return __generator(this, function (_a) {
         return [2 /*return*/, {
@@ -55,7 +60,6 @@ server.setRequestHandler(types_js_1.ListToolsRequestSchema, function () { return
                         description: "2026년 F1 시즌에 참가하는 팀(컨스트럭터) 목록과 수를 조회합니다.",
                         inputSchema: { type: "object", properties: {}, required: [] },
                     },
-                    // 💡 새로 추가된 도구 1: 특정 팀 드라이버 조회
                     {
                         name: "get_team_drivers",
                         description: "특정 F1 팀(컨스트럭터)의 2026 시즌 소속 드라이버 명단을 조회합니다.",
@@ -70,7 +74,6 @@ server.setRequestHandler(types_js_1.ListToolsRequestSchema, function () { return
                             required: ["constructor_id"],
                         },
                     },
-                    // 💡 새로 추가된 도구 2: 현재 드라이버 순위
                     {
                         name: "get_driver_standings",
                         description: "가장 최신(현재 시즌) F1 드라이버 챔피언십 포인트 순위를 조회합니다.",
@@ -151,20 +154,44 @@ server.setRequestHandler(types_js_1.CallToolRequestSchema, function (request) { 
         }
     });
 }); });
-function run() {
-    return __awaiter(this, void 0, void 0, function () {
-        var transport;
-        return __generator(this, function (_a) {
-            switch (_a.label) {
-                case 0:
-                    transport = new stdio_js_1.StdioServerTransport();
-                    return [4 /*yield*/, server.connect(transport)];
-                case 1:
-                    _a.sent();
-                    console.error("F1 Tracker MCP Server running on stdio");
-                    return [2 /*return*/];
-            }
-        });
+// 2. 웹 서버(Express) 및 SSE 연결 설정
+var app = (0, express_1.default)();
+app.use((0, cors_1.default)()); // 외부(PlayMCP 등)에서 접근 가능하도록 허용
+var transport;
+// 클라이언트가 처음 연결을 맺는 엔드포인트
+app.get("/sse", function (req, res) { return __awaiter(void 0, void 0, void 0, function () {
+    return __generator(this, function (_a) {
+        switch (_a.label) {
+            case 0:
+                console.log("새로운 SSE 연결이 시작되었습니다.");
+                transport = new sse_js_1.SSEServerTransport("/messages", res);
+                return [4 /*yield*/, server.connect(transport)];
+            case 1:
+                _a.sent();
+                return [2 /*return*/];
+        }
     });
-}
-run().catch(console.error);
+}); });
+// 클라이언트(AI)가 도구 실행 요청(메시지)을 보내는 엔드포인트
+app.post("/messages", function (req, res) { return __awaiter(void 0, void 0, void 0, function () {
+    return __generator(this, function (_a) {
+        switch (_a.label) {
+            case 0:
+                if (!transport) return [3 /*break*/, 2];
+                return [4 /*yield*/, transport.handlePostMessage(req, res)];
+            case 1:
+                _a.sent();
+                return [3 /*break*/, 3];
+            case 2:
+                res.status(400).send("SSE transport not initialized");
+                _a.label = 3;
+            case 3: return [2 /*return*/];
+        }
+    });
+}); });
+// 3. 서버 실행
+var PORT = process.env.PORT || 3000;
+app.listen(PORT, function () {
+    console.log("\uD83D\uDE80 F1 Tracker MCP \uC6F9 \uC11C\uBC84\uAC00 \uD3EC\uD2B8 ".concat(PORT, "\uC5D0\uC11C \uC2E4\uD589 \uC911\uC785\uB2C8\uB2E4."));
+    console.log("\uD83D\uDD17 \uC5F0\uACB0 \uC8FC\uC18C: http://localhost:".concat(PORT, "/sse"));
+});

@@ -1,12 +1,9 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
-import express from "express";
-import cors from "cors";
 
-// 1. MCP 서버 설정
 const server = new Server(
-  { name: "f1-tracker-mcp", version: "1.1.0" },
+  { name: "f1-tracker-mcp", version: "1.1.0" }, // 버전을 1.1.0으로 올렸습니다.
   { capabilities: { tools: {} } }
 );
 
@@ -23,6 +20,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         description: "2026년 F1 시즌에 참가하는 팀(컨스트럭터) 목록과 수를 조회합니다.",
         inputSchema: { type: "object", properties: {}, required: [] },
       },
+      // 💡 새로 추가된 도구 1: 특정 팀 드라이버 조회
       {
         name: "get_team_drivers",
         description: "특정 F1 팀(컨스트럭터)의 2026 시즌 소속 드라이버 명단을 조회합니다.",
@@ -37,6 +35,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           required: ["constructor_id"],
         },
       },
+      // 💡 새로 추가된 도구 2: 현재 드라이버 순위
       {
         name: "get_driver_standings",
         description: "가장 최신(현재 시즌) F1 드라이버 챔피언십 포인트 순위를 조회합니다.",
@@ -57,6 +56,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const scheduleInfo = races.map((race: any) => `라운드 ${race.round}: ${race.raceName} (날짜: ${race.date})`).join('\n');
       return { content: [{ type: "text", text: `2026년 F1 일정입니다.\n${scheduleInfo}` }] };
     } 
+    
     else if (name === "get_participating_teams") {
       const response = await fetch("https://api.jolpi.ca/ergast/f1/2026/constructors.json");
       const data = await response.json();
@@ -64,6 +64,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const teamInfo = teams.map((team: any) => `- ${team.name} (국적: ${team.nationality})`).join('\n');
       return { content: [{ type: "text", text: `2026년 참가 팀은 총 ${teams.length}개 팀입니다.\n${teamInfo}` }] };
     }
+
+    // 💡 새로 추가된 로직 1: 특정 팀 드라이버 조회
     else if (name === "get_team_drivers") {
       const constructorId = (args as any).constructor_id;
       const response = await fetch(`https://api.jolpi.ca/ergast/f1/2026/constructors/${constructorId}/drivers.json`);
@@ -77,13 +79,17 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const driverInfo = drivers.map((d: any) => `- ${d.givenName} ${d.familyName} (번호: ${d.permanentNumber}, 국적: ${d.nationality})`).join('\n');
       return { content: [{ type: "text", text: `요청하신 팀의 드라이버 명단입니다:\n${driverInfo}` }] };
     }
+
+    // 💡 새로 추가된 로직 2: 현재 드라이버 순위
     else if (name === "get_driver_standings") {
       const response = await fetch("https://api.jolpi.ca/ergast/f1/current/driverStandings.json");
       const data = await response.json();
+      // 데이터가 없을 경우를 대비한 안전한 처리
       const standingsList = data.MRData.StandingsTable.StandingsLists[0];
       if (!standingsList) {
         return { content: [{ type: "text", text: "현재 순위 데이터가 아직 집계되지 않았습니다." }] };
       }
+
       const standings = standingsList.DriverStandings;
       const standingsInfo = standings.slice(0, 10).map((s: any) => 
         `${s.position}위: ${s.Driver.givenName} ${s.Driver.familyName} (${s.Constructors[0]?.name}) - ${s.points}점`
@@ -100,31 +106,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   }
 });
 
-// 2. 웹 서버(Express) 및 SSE 연결 설정
-const app = express();
-app.use(cors()); // 외부(PlayMCP 등)에서 접근 가능하도록 허용
-
-let transport: SSEServerTransport;
-
-// 클라이언트가 처음 연결을 맺는 엔드포인트
-app.get("/sse", async (req, res) => {
-  console.log("새로운 SSE 연결이 시작되었습니다.");
-  transport = new SSEServerTransport("/messages", res);
+async function run() {
+  const transport = new StdioServerTransport();
   await server.connect(transport);
-});
+  console.error("F1 Tracker MCP Server running on stdio");
+}
 
-// 클라이언트(AI)가 도구 실행 요청(메시지)을 보내는 엔드포인트
-app.post("/messages", async (req, res) => {
-  if (transport) {
-    await transport.handlePostMessage(req, res);
-  } else {
-    res.status(400).send("SSE transport not initialized");
-  }
-});
-
-// 3. 서버 실행
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`🚀 F1 Tracker MCP 웹 서버가 포트 ${PORT}에서 실행 중입니다.`);
-  console.log(`🔗 연결 주소: http://localhost:${PORT}/sse`);
-});
+run().catch(console.error);
